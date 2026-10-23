@@ -160,14 +160,34 @@ export class SimplifiedExchangeComponent {
     if (!selectEl) {
       return;
     }
+    const previousSelectedAddress = (selectEl.value || "") as Address | "";
     const yourTokenGroup = document.getElementById("yourTokenGroup") as HTMLOptGroupElement;
     const otherTokenGroup = document.getElementById("otherTokenGroup") as HTMLOptGroupElement;
 
-    if (refreshData?.tokenBalances) {
+    const inventoryBalances = this._services.inventoryBar?.getBalances?.() ?? [];
+    const mergedByAddress = new Map<string, { address: Address; symbol: string; decimals: number; balance: bigint }>();
+    for (const b of refreshData?.tokenBalances ?? []) {
+      if (b.address && b.balance > 0n) {
+        mergedByAddress.set(b.address.toLowerCase(), b);
+      }
+    }
+    for (const b of inventoryBalances) {
+      if (b.address) {
+        const key = b.address.toLowerCase();
+        if (b.balance > 0n) {
+          mergedByAddress.set(key, b);
+        } else {
+          mergedByAddress.delete(key);
+        }
+      }
+    }
+    const ownedBalances = Array.from(mergedByAddress.values());
+
+    if (ownedBalances.length > 0 || refreshData?.tokenBalances) {
       yourTokenGroup.style.display = "";
       otherTokenGroup.style.display = "";
       if (
-        refreshData.tokenBalances.some((balance) => areAddressesEqual(balance.address, INVENTORY_TOKENS.LUSD.address)) &&
+        ownedBalances.some((balance) => areAddressesEqual(balance.address, INVENTORY_TOKENS.LUSD.address)) &&
         !yourTokenGroup.querySelector(`option[value="${INVENTORY_TOKENS.LUSD.address}"i]`)
       ) {
         // Ensure LUSD is always in the first position
@@ -178,7 +198,7 @@ export class SimplifiedExchangeComponent {
         option.text = INVENTORY_TOKENS.LUSD.symbol.substring(0, 10);
         yourTokenGroup.insertBefore(option, yourTokenGroup.firstChild);
       }
-      refreshData.tokenBalances.forEach((balance) => {
+      ownedBalances.forEach((balance) => {
         if (yourTokenGroup.querySelector(`option[value="${balance.address}"i]`)) {
           return; // Token already exists
         }
@@ -191,9 +211,9 @@ export class SimplifiedExchangeComponent {
         option.text = balance.symbol.substring(0, 10);
         yourTokenGroup.appendChild(option);
       });
-      // Remove old user's tokens
+      // Remove tokens that are no longer owned
       yourTokenGroup.querySelectorAll("option").forEach((opt) => {
-        if (!refreshData.tokenBalances?.some((balance) => areAddressesEqual(balance.address, opt.value as Address))) {
+        if (!ownedBalances.some((balance) => areAddressesEqual(balance.address, opt.value as Address))) {
           opt.remove();
         }
       });
@@ -230,6 +250,15 @@ export class SimplifiedExchangeComponent {
         opt.remove();
       }
     });
+
+    if (previousSelectedAddress) {
+      const matchingOption = [...selectEl.options].find((opt) =>
+        areAddressesEqual(opt.value as Address, previousSelectedAddress)
+      );
+      if (matchingOption) {
+        selectEl.value = matchingOption.value;
+      }
+    }
   }
 
   /**
@@ -618,13 +647,8 @@ export class SimplifiedExchangeComponent {
       }
     }
 
-    // Update input label
     const amountLabel = document.getElementById("amountLabel");
     const amountInput = document.getElementById("exchangeAmount") as HTMLInputElement;
-
-    if (amountLabel) {
-      amountLabel.textContent = this._state.direction === "deposit" ? "LUSD" : "UUSD";
-    }
 
     if (amountInput) {
       if (isBalancesLoading) {
@@ -636,8 +660,22 @@ export class SimplifiedExchangeComponent {
       }
     }
 
-    // Show/hide options based on protocol state and direction
+    // Update token options and restore active selection before computing the amount label (#92)
     this._renderTokenOptions();
+
+    if (amountLabel) {
+      let activeSymbol = "LUSD";
+      if (this._state.direction === "withdraw") {
+        activeSymbol = "UUSD";
+      } else {
+        try {
+          activeSymbol = this._getSelectedToken().symbol || "LUSD";
+        } catch {
+          activeSymbol = "LUSD";
+        }
+      }
+      amountLabel.textContent = activeSymbol;
+    }
     this._renderOptions();
     this._renderOutput();
   }
