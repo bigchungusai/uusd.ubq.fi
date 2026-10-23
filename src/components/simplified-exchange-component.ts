@@ -152,6 +152,17 @@ export class SimplifiedExchangeComponent {
       outputDiv.insertBefore(selectEl, ubqOutputEl);
       inputDiv.insertBefore(labelSpan, inputDiv.firstChild);
     }
+
+    let maxBtn = document.getElementById("maxButton") as HTMLButtonElement | null;
+    if (!maxBtn) {
+      maxBtn = document.createElement("button");
+      maxBtn.id = "maxButton";
+      maxBtn.type = "button";
+      maxBtn.className = "max-button";
+      maxBtn.textContent = "MAX";
+      maxBtn.addEventListener("click", () => this.fillMaxBalance());
+      inputDiv.appendChild(maxBtn);
+    }
   }
 
   private _renderTokenOptions() {
@@ -165,7 +176,8 @@ export class SimplifiedExchangeComponent {
 
     if (refreshData?.tokenBalances) {
       yourTokenGroup.style.display = "";
-      otherTokenGroup.style.display = "";
+      // Hide preloaded token list on deposit when wallet inventory is loaded (#47)
+      otherTokenGroup.style.display = this._state.direction === "deposit" && refreshData.tokenBalances.length > 0 ? "none" : "";
       if (
         refreshData.tokenBalances.some((balance) => areAddressesEqual(balance.address, INVENTORY_TOKENS.LUSD.address)) &&
         !yourTokenGroup.querySelector(`option[value="${INVENTORY_TOKENS.LUSD.address}"i]`)
@@ -1122,6 +1134,20 @@ export class SimplifiedExchangeComponent {
   /**
    * Auto-populate with max balance
    */
+  public fillMaxBalance(): void {
+    const amountInput = document.getElementById("exchangeAmount") as HTMLInputElement | null;
+    if (!amountInput) return;
+    try {
+      const selectedToken = this._state.direction === "deposit" ? this._getSelectedToken() : INVENTORY_TOKENS.UUSD;
+      const maxBalance = getMaxTokenBalance(this._services.inventoryBar, selectedToken.symbol);
+      amountInput.value = maxBalance;
+      this._state.amount = maxBalance;
+      void this._calculateRoute();
+    } catch (error) {
+      console.error("Error filling max balance:", error);
+    }
+  }
+
   private _autoPopulateMaxBalance(retryCount: number = 0) {
     // Cancel any pending retries when called
     if (this._autoPopulateRetryTimeout) {
